@@ -8,9 +8,6 @@ data/processed/dataset_processed.csv
 # Fix scripts (temporary helper files)
 fix_*.py
 
-# Claude Code internal
-.claude/
-
 # Python
 __pycache__/
 *.pyc
