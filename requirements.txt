@@ -1,0 +1,29 @@
+# Data Collection
+# praw הוסר - משתמשים ב-Reddit JSON API ישירות
+kaggle>=1.6.17
+datasets>=2.19.0
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.2.2
+numpy>=1.26.4
+
+# NLP & Preprocessing
+nltk>=3.8.1
+scikit-learn>=1.4.2
+textblob>=0.18.0
+
+# Visualization
+matplotlib>=3.8.4
+seaborn>=0.13.2
+wordcloud>=1.9.3
+plotly>=5.22.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.29.4
+nbformat>=5.10.4
+
+# Extras
+tqdm>=4.66.4
+python-dotenv>=1.0.1

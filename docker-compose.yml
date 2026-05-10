@@ -1,0 +1,108 @@
+version: '3.9'
+
+services:
+
+  # ─── Database ────────────────────────────────────────────
+  db:
+    image: postgres:15
+    container_name: fakenews_db
+    environment:
+      POSTGRES_DB:       fakenews
+      POSTGRES_USER:     admin
+      POSTGRES_PASSWORD: secret123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d fakenews"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Scraper ─────────────────────────────────────────────
+  scraper:
+    build: ./services/scraper
+    container_name: fakenews_scraper
+    environment:
+      REDDIT_CLIENT_ID:     ${REDDIT_CLIENT_ID}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET}
+      REDDIT_USER_AGENT:    ${REDDIT_USER_AGENT}
+      DB_URL:               postgresql://admin:secret123@db:5432/fakenews
+      PREPROCESSOR_URL:     http://preprocessor:8001
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  # ─── Preprocessor ────────────────────────────────────────
+  preprocessor:
+    build: ./services/preprocessor
+    container_name: fakenews_preprocessor
+    ports:
+      - "8001:8001"
+
+  # ─── Our Model ───────────────────────────────────────────
+  model:
+    build: ./services/model
+    container_name: fakenews_model
+    volumes:
+      - ./data/processed:/app/models
+    ports:
+      - "8002:8002"
+
+  # ─── Stats Service ───────────────────────────────────────
+  stats:
+    build: ./services/stats
+    container_name: fakenews_stats
+    ports:
+      - "8003:8003"
+
+  # ─── Sentiment Service ───────────────────────────────────
+  sentiment:
+    build: ./services/sentiment
+    container_name: fakenews_sentiment
+    ports:
+      - "8004:8004"
+
+  # ─── Topic Analysis ──────────────────────────────────────
+  topic:
+    build: ./services/topic
+    container_name: fakenews_topic
+    ports:
+      - "8005:8005"
+
+  # ─── Gemini Service ──────────────────────────────────────
+  gemini:
+    build: ./services/gemini
+    container_name: fakenews_gemini
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "8006:8006"
+
+  # ─── Dashboard ───────────────────────────────────────────
+  dashboard:
+    build: ./services/dashboard
+    container_name: fakenews_dashboard
+    environment:
+      DB_URL:           postgresql://admin:secret123@db:5432/fakenews
+      SCRAPER_URL:      http://scraper:8000
+      MODEL_URL:        http://model:8002
+      STATS_URL:        http://stats:8003
+      SENTIMENT_URL:    http://sentiment:8004
+      TOPIC_URL:        http://topic:8005
+      GEMINI_URL:       http://gemini:8006
+    depends_on:
+      - db
+      - model
+      - sentiment
+      - topic
+      - gemini
+    ports:
+      - "8501:8501"
+
+volumes:
+  postgres_data:
