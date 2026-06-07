@@ -1,6 +1,6 @@
 from fastapi import FastAPI, BackgroundTasks
 from apscheduler.schedulers.background import BackgroundScheduler
-import requests, os, psycopg2
+import requests, os, psycopg2, feedparser
 from datetime import datetime
 
 app = FastAPI(title="Scraper Service")
@@ -13,6 +13,13 @@ REDDIT_USER_AGENT    = os.getenv("REDDIT_USER_AGENT", "FakeNewsBot/1.0")
 
 SUBREDDITS    = ["CryptoCurrency", "Bitcoin", "Buttcoin", "CryptoMoonShots",
                  "SatoshiStreetBets", "CryptoScams", "altcoin", "Superstonk"]
+
+RSS_FEEDS = {
+    "CoinDesk":        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "CoinTelegraph":   "https://cointelegraph.com/rss",
+    "BitcoinMagazine": "https://bitcoinmagazine.com/feed",
+    "Decrypt":         "https://decrypt.co/feed",
+}
 MODEL_URL     = os.getenv("MODEL_URL",     "http://model:8002")
 SENTIMENT_URL = os.getenv("SENTIMENT_URL", "http://sentiment:8004")
 STATS_URL     = os.getenv("STATS_URL",     "http://stats:8003")
@@ -195,9 +202,37 @@ def scrape_all():
     print(f"[{datetime.now()}] Done. Total: {len(all_posts)} posts")
 
 
+def scrape_rss():
+    print(f"[{datetime.now()}] Starting RSS scrape...")
+    all_posts = []
+    for source, url in RSS_FEEDS.items():
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:30]:
+                title = entry.get("title", "").strip()
+                link  = entry.get("link", "")
+                if not title:
+                    continue
+                all_posts.append({
+                    "title":        title,
+                    "text":         entry.get("summary", "")[:500],
+                    "url":          link,
+                    "subreddit":    source,
+                    "score":        0,
+                    "upvote_ratio": 0.5,
+                    "num_comments": 0,
+                })
+            print(f"  {source}: {len(feed.entries[:30])} articles")
+        except Exception as e:
+            print(f"  Error scraping {source}: {e}")
+    process_and_save(all_posts)
+    print(f"[{datetime.now()}] RSS done. Total: {len(all_posts)} articles")
+
+
 # ─── Scheduler ───────────────────────────────────────────
 scheduler = BackgroundScheduler()
 scheduler.add_job(scrape_all, 'interval', hours=24)
+scheduler.add_job(scrape_rss,  'interval', hours=24)
 scheduler.start()
 
 
@@ -211,12 +246,45 @@ def scrape_now(background_tasks: BackgroundTasks):
     background_tasks.add_task(scrape_all)
     return {"message": "Scraping started in background"}
 
+@app.post("/scrape/rss")
+def scrape_rss_now(background_tasks: BackgroundTasks):
+    background_tasks.add_task(scrape_rss)
+    return {"message": "RSS scraping started in background", "sources": list(RSS_FEEDS.keys())}
+
 @app.post("/scrape/url")
 def scrape_url(url: str):
     try:
         json_url = url.rstrip("/") + ".json"
-        r = requests.get(json_url, headers={"User-Agent": REDDIT_USER_AGENT})
-        data = r.json()[0]["data"]["children"][0]["data"]
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+        }
+        # use OAuth if credentials are available
+        if REDDIT_CLIENT_ID and REDDIT_CLIENT_ID != "your_client_id_here":
+            token = get_reddit_token()
+            headers["Authorization"] = f"bearer {token}"
+            headers["User-Agent"] = REDDIT_USER_AGENT
+            json_url = url.rstrip("/").replace("www.reddit.com", "oauth.reddit.com") + ".json"
+
+        r = requests.get(json_url, headers=headers, timeout=10)
+
+        if r.status_code != 200:
+            # fallback: extract title from URL slug
+            parts = [p for p in url.rstrip("/").split("/") if p]
+            if len(parts) >= 2:
+                slug = parts[-1]
+                title_from_url = slug.replace("_", " ").replace("-", " ").title()
+                post = {
+                    "title": title_from_url, "text": "", "url": url,
+                    "subreddit": parts[4] if len(parts) > 4 else "",
+                    "score": 0, "upvote_ratio": 0.5, "num_comments": 0,
+                }
+                process_and_save([post])
+                return {"message": "Title extracted from URL (no credentials)", "title": title_from_url}
+            return {"error": f"Reddit returned HTTP {r.status_code}. Try using Reddit credentials."}
+
+        raw = r.json()
+        data = raw[0]["data"]["children"][0]["data"]
         post = {
             "title":        data.get("title", ""),
             "text":         data.get("selftext", "")[:500],

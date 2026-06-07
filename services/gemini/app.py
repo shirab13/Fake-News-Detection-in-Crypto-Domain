@@ -1,17 +1,18 @@
 from fastapi import FastAPI
 import os, requests, json
 
-app = FastAPI(title="Gemini Service")
+app = FastAPI(title="LLM Analysis Service")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL   = "llama-3.3-70b-versatile"
 
 
-def ask_gemini(title: str) -> dict:
-    if not GEMINI_API_KEY:
+def ask_groq(title: str) -> dict:
+    if not GROQ_API_KEY:
         return {
             "verdict":     "unknown",
-            "explanation": "Gemini API key not configured",
+            "explanation": "Groq API key not configured",
             "confidence":  "low",
             "red_flags":   []
         }
@@ -31,19 +32,20 @@ Respond in JSON format:
 
 Only respond with the JSON, no extra text."""
 
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type":  "application/json"
+    }
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 256}
+        "model":       GROQ_MODEL,
+        "messages":    [{"role": "user", "content": prompt}],
+        "temperature": 0.1,
+        "max_tokens":  256
     }
 
     try:
-        r = requests.post(
-            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-            json=payload,
-            timeout=15
-        )
+        r    = requests.post(GROQ_URL, headers=headers, json=payload, timeout=15)
         resp = r.json()
-        print(f"Gemini API response: {resp}")
         if "error" in resp:
             return {
                 "verdict":     "unknown",
@@ -51,7 +53,7 @@ Only respond with the JSON, no extra text."""
                 "confidence":  "low",
                 "red_flags":   []
             }
-        text = resp["candidates"][0]["content"]["parts"][0]["text"]
+        text = resp["choices"][0]["message"]["content"]
         text = text.strip().strip("```json").strip("```").strip()
         return json.loads(text)
     except Exception as e:
@@ -66,12 +68,13 @@ Only respond with the JSON, no extra text."""
 @app.get("/")
 def root():
     return {
-        "service": "gemini",
-        "status":  "ok",
-        "api_key_set": bool(GEMINI_API_KEY)
+        "service":      "llm-analysis",
+        "model":        GROQ_MODEL,
+        "status":       "ok",
+        "api_key_set":  bool(GROQ_API_KEY)
     }
 
 @app.post("/analyze")
 def analyze(body: dict):
     title = body.get("text", "")
-    return ask_gemini(title)
+    return ask_groq(title)

@@ -28,7 +28,7 @@ GEMINI_URL    = os.getenv("GEMINI_URL",    "http://gemini:8006")
 def load_data():
     try:
         engine = create_engine(DB_URL)
-        df = pd.read_sql("SELECT * FROM posts ORDER BY scraped_at DESC LIMIT 1000", engine)
+        df = pd.read_sql("SELECT * FROM posts ORDER BY scraped_at DESC LIMIT 5000", engine)
         return df
     except Exception as e:
         st.warning(f"DB not available: {e}. Showing demo data.")
@@ -204,11 +204,29 @@ with tab2:
         user_text = ""
 
     if st.button("נתח", type="primary"):
-        text_to_analyze = user_text if input_type == "טקסט חופשי" else user_url
+        if input_type == "טקסט חופשי":
+            text_to_analyze = user_text
+        else:
+            text_to_analyze = user_url
 
         if not text_to_analyze:
             st.warning("נא להכניס טקסט או URL")
         else:
+            if input_type == "Reddit URL":
+                with st.spinner("שולף פוסט מ-Reddit..."):
+                    try:
+                        r = requests.post(f"{SCRAPER_URL}/scrape/url",
+                                          params={"url": text_to_analyze}, timeout=15)
+                        result = r.json()
+                        if "error" in result:
+                            st.error(f"שגיאה בשליפה: {result['error']}")
+                            st.stop()
+                        text_to_analyze = result.get("title", text_to_analyze)
+                        st.info(f"כותרת הפוסט: **{text_to_analyze}**")
+                    except Exception as e:
+                        st.error(f"לא ניתן לשלוף את הפוסט: {e}")
+                        st.stop()
+
             with st.spinner("מנתח..."):
                 col1, col2, col3 = st.columns(3)
 
@@ -284,10 +302,16 @@ with tab3:
 
     with col1:
         st.markdown("**הפעלה ידנית**")
-        if st.button("סרוק עכשיו", type="primary"):
+        if st.button("סרוק Reddit עכשיו", type="primary"):
             with st.spinner("סורק Reddit..."):
                 r = call_service(f"{SCRAPER_URL}/scrape/now", {})
                 st.success(r.get("message", "Started"))
+
+        if st.button("סרוק חדשות קריפטו (RSS) עכשיו", type="primary"):
+            with st.spinner("שולף כתבות מ-CoinDesk, CoinTelegraph..."):
+                r = call_service(f"{SCRAPER_URL}/scrape/rss", {})
+                sources = r.get("sources", [])
+                st.success(f"✅ {r.get('message', 'Started')} | מקורות: {', '.join(sources)}")
 
         st.markdown("**סטטיסטיקות Scraper**")
         if st.button("רענן סטטיסטיקות"):
