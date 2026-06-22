@@ -7,9 +7,14 @@ nltk.download('stopwords', quiet=True)
 nltk.download('wordnet',   quiet=True)
 nltk.download('punkt',     quiet=True)
 
-app        = FastAPI(title="Preprocessor Service")
-lemmatizer = WordNetLemmatizer()
-STOPS      = set(stopwords.words('english'))
+app = FastAPI(title="Preprocessor Service")
+
+try:
+    lemmatizer = WordNetLemmatizer()
+    STOPS      = set(stopwords.words('english'))
+except LookupError:
+    lemmatizer = None
+    STOPS      = set()
 
 
 def clean(text: str) -> str:
@@ -19,9 +24,13 @@ def clean(text: str) -> str:
     text = re.sub(r'[^a-z0-9\s]', ' ', text)
     text = re.sub(r'\d+', 'NUM', text)
     text = re.sub(r'\s+', ' ', text).strip()
-    tokens = [lemmatizer.lemmatize(w) for w in text.split()
-              if w not in STOPS and len(w) > 2]
-    return ' '.join(tokens)
+    words = [w for w in text.split() if w not in STOPS and len(w) > 2]
+    if lemmatizer:
+        try:
+            words = [lemmatizer.lemmatize(w) for w in words]
+        except LookupError:
+            pass
+    return ' '.join(words)
 
 
 @app.get("/")
